@@ -54,6 +54,14 @@ type Rx struct {
 	buf        [24]byte
 	setConfig  ControllerConfig
 	proc       Process
+	cb         rxCallbacks
+}
+
+type rxCallbacks struct {
+	// OnSetConfig is called when a setconfig packet is received.
+	OnSetConfig func(hdr *header, cfg *ControllerConfig) error
+	// OnDoProcess is called when a doprocess packet is received.
+	OnDoProcess func(hdr *header, proc *Process) error
 }
 
 func (r *Rx) Reset(rd io.ReadCloser) {
@@ -67,11 +75,7 @@ func (r *Rx) ReceiveNext() (int, error) {
 	if r.r == nil {
 		return 0, io.EOF
 	}
-	n, err := r.recv()
-	if err != nil && n > 0 {
-		r.close() // On error and non-zero bytes read we've desynced, close connection.
-	}
-	return n, err
+	return r.recv()
 }
 
 func (r *Rx) recv() (n int, err error) {
@@ -80,8 +84,8 @@ func (r *Rx) recv() (n int, err error) {
 	r.buf[0] = 0
 	nbr, err = r.r.Read(r.buf[:1])
 	n += nbr
-	if n == 0 {
-		goto BADREAD
+	if nbr == 0 {
+		return 0, io.ErrNoProgress
 	}
 	if r.buf[0] != 1 {
 		err = errors.New("unsupported version or garbage message")
@@ -89,7 +93,7 @@ func (r *Rx) recv() (n int, err error) {
 	}
 	nbr, err = r.r.Read(r.buf[1:10])
 	n += nbr
-	if n != 7 {
+	if nbr != 7 {
 		goto BADREAD
 	}
 	// Check header RSV1 and RSV2.
@@ -171,6 +175,7 @@ func (r *Rx) recv() (n int, err error) {
 				u.Forks = append(u.Forks, binary.BigEndian.Uint16(r.buf[0:]))
 			}
 		}
+		err = r.cb.OnDoProcess(&r.lastHeader, &r.proc)
 
 	case pktSetConfig:
 		/*
@@ -240,7 +245,7 @@ func (r *Rx) recv() (n int, err error) {
 			const steplistHdrLen = 6
 			nbr, err = r.r.Read(r.buf[:steplistHdrLen])
 			n += nbr
-			if n != steplistHdrLen {
+			if nbr != steplistHdrLen {
 				goto BADREAD
 			}
 			sl := extend1(&r.setConfig.CommandLists)
@@ -256,7 +261,7 @@ func (r *Rx) recv() (n int, err error) {
 				// | Procedure(16) | Arglen(8) | Args(Arglen) |
 				nbr, err = r.r.Read(r.buf[:3])
 				n += nbr
-				if n != 3 {
+				if nbr != 3 {
 					goto BADREAD
 				}
 
@@ -268,19 +273,23 @@ func (r *Rx) recv() (n int, err error) {
 				cmd.Args = cmd.Args[:arglen]
 				nbr, err = r.r.Read(cmd.Args[:arglen])
 				n += nbr
-				if n != int(arglen) {
+				if nbr != int(arglen) {
 					goto BADREAD
 				}
 			}
 		}
+		err = r.cb.OnSetConfig(&r.lastHeader, &r.setConfig)
 
+	default:
+		err = errors.New("unsupported packet type")
 	}
-	return 0, nil
+	return n, err
 
 BADREAD:
 	if err == nil {
 		err = io.ErrNoProgress
 	}
+	r.close()
 	return n, err
 }
 
@@ -289,11 +298,6 @@ func (r *Rx) close() {
 		r.r.Close()
 		r.r = nil
 	}
-}
-
-func (r *Rx) decodeConfig() {
-	// Read CRC+configlens
-
 }
 
 func decodeEntity(b []byte) (ent entity) {
@@ -340,4 +344,7 @@ func extend1[T any](b *[]T) *T {
 	}
 	return &(*b)[len(*b)-1]
 
+}
+
+type Tx struct {
 }
