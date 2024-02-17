@@ -1,5 +1,7 @@
 package pcc
 
+import "github.com/soypat/pcc/internal/si"
+
 // Process definition types.
 type (
 	uuid_t     = [16]byte
@@ -7,56 +9,6 @@ type (
 	moduletype = uint16
 	maybetime  = uint32
 )
-
-// NewDimension creates a new dimension from the given exponents.
-func NewDimension(len, mass, time, temp, icurrent, luminosity, amount, _ int8) Dimension {
-	return Dimension{
-		dims: [4]byte{
-			i8ToI4(len) | i8ToI4(mass)<<4,
-			i8ToI4(time) | i8ToI4(temp)<<4,
-			i8ToI4(icurrent) | i8ToI4(luminosity)<<4,
-			i8ToI4(amount) | i8ToI4(0)<<4,
-		},
-	}
-}
-
-// Dimension represents the dimensions of a physical quantity.
-type Dimension struct {
-	// dims contains 7 int4's representing the exponent of primitive dimensions:
-	//  0. Distance dimension (L)
-	//  1. Mass dimension (M)
-	//  2. Time dimension (T)
-	//  3. Temperature dimension (K)
-	//  4. Electric current dimension (I)
-	//  5. Luminous intensity dimension (J)
-	//  6. Amount or quantity dimension (N). i.e: moles, particles, electric pulses, etc.
-	// Since these are int4s they are in the range of -8 to 7. Last 4 bits of fourth byte are unused.
-	dims [4]byte
-}
-
-func (d Dimension) ExpLength() int8      { return i4ToI8(d.dims[0] & 0xf) }
-func (d Dimension) ExpMass() int8        { return i4ToI8(d.dims[0] >> 4) }
-func (d Dimension) ExpTime() int8        { return i4ToI8(d.dims[1] & 0xf) }
-func (d Dimension) ExpTemperature() int8 { return i4ToI8(d.dims[1] >> 4) }
-func (d Dimension) ExpCurrent() int8     { return i4ToI8(d.dims[2] & 0xf) }
-func (d Dimension) ExpLuminous() int8    { return i4ToI8(d.dims[2] >> 4) }
-func (d Dimension) ExpAmount() int8      { return i4ToI8(d.dims[3] & 0xf) }
-
-func i8ToI4(c int8) byte {
-	if c < 0 {
-		c |= 1 << 3
-	}
-	return byte(c) & 0xf
-}
-
-// i4ToI8 converts lower 4 bits of a byte to a signed 4 bit integer.
-func i4ToI8(c byte) int8 {
-	c &= 0xf
-	if c&0x8 != 0 {
-		c = c | 0xf0
-	}
-	return int8(c)
-}
 
 // entity is a base type for process control flow data types that
 // define the actuations that occured in a process.
@@ -71,33 +23,78 @@ type entity struct {
 
 type ProcessFlags uint64
 
+// UnitFlags decide the behavior of a Unit.
+// | On End Bits(2) | RSV(6) |
 type UnitFlags uint8
+
+const (
+	// if any of these bits are set, the unit is an end unit (finishes process).
+	unitFlagEndMask = 0b11
+)
+
+func (f UnitFlags) IsEnd() bool {
+	return f&unitFlagEndMask == 1
+}
+
+func (f UnitFlags) IsRestart() bool {
+	return f&unitFlagEndMask == 2
+}
 
 // Unit represents a process control flow step in a Process.
 // Actions of a Unit are represented as indices corresponding to the
 // configuration of the process controller.
 type Unit struct {
-	Flags    UnitFlags
+	Flags UnitFlags
+	// Sequence is the index of this unit's sequence in the process controller's configuration.
 	Sequence uint16
-	Next     uint16
-	Forks    []uint16
+	// Next is the index of the next Unit in the process.
+	Next uint16
+	// Forks are the index of the forks to be started after running the unit.
+	Forks []uint16
 }
 
 type Register struct {
 	Name [8]byte
 	Base int8
 	// rsv 	 [3]byte
-	Dimension Dimension
+	Dimension si.Dimension
 	Value     int64
 }
+
+/*
+// AgnosticSequence is a template sequence whose modules are generically defined on execution.
+type AgnosticSequence struct {
+	CtlModules []struct {
+		Purpose    []byte
+		ModuleType moduletype
+		APIVersion uint8
+	}
+	Commands []AgnosticSequenceCommand
+}
+
+type AgnosticSequenceCommand struct {
+	CtlModuleIdx uint16
+	CommandIdx   uint16
+}
+*/
 
 type Sequence struct {
 	// Name is the human readable name of the sequence.
 	Name [8]byte
-	// Command is a list of tuples containing:
-	//  0. The index+1 w.r.t CommandList of the command to be executed.
-	//  1. The ID of the module to execute the command on. i.e: pump 2, valve 3, etc.
-	Command [][2]int
+	// Commands lists the commands to be executed in the sequence, in order.
+	Commands []SequenceCommand
+}
+
+type SequenceCommand struct {
+	// CommandIndex is the 0-based index of the Command in the CommandList.
+	CommandIndex uint16
+	APIVersion   uint8
+	// The identifier of the module to execute the command on.
+	// For example, there may be several pumps in a process controller, each with a unique identifier.
+	ModuleID uint8
+	// ModuleType is the type of the module to execute the command on. Together with
+	// APIVersion they select the CommandList to use.
+	ModuleType moduletype
 }
 
 type CommandList struct {

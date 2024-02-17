@@ -71,7 +71,7 @@ func (r *Rx) Reset(rd io.ReadCloser) {
 	r.lastEnt = entity{}
 }
 
-func (r *Rx) ReceiveNext() (int, error) {
+func (r *Rx) _ReceiveNext() (int, error) {
 	if r.r == nil {
 		return 0, io.EOF
 	}
@@ -236,7 +236,7 @@ func (r *Rx) recv() (n int, err error) {
 				if nbr != 4 {
 					goto BADREAD
 				}
-				seq.Command = append(seq.Command, decodeSequenceCmd(r.buf[:4]))
+				seq.Commands = append(seq.Commands, decodeSequenceCmd(r.buf[:4]))
 			}
 		}
 
@@ -317,9 +317,10 @@ func decodeRegister(b []byte) (reg Register) {
 	return reg
 }
 
-func decodeSequenceCmd(b []byte) (seq [2]int) {
-	seq[0] = int(binary.BigEndian.Uint16(b[:2]))
-	seq[1] = int(binary.BigEndian.Uint16(b[2:4]))
+func decodeSequenceCmd(b []byte) (seq SequenceCommand) {
+	seq.CommandIndex = 0xffff //binary.BigEndian.Uint16(b[:2])
+
+	// seq[1] = binary.BigEndian.Uint16(b[2:4])
 	return seq
 }
 
