@@ -136,7 +136,7 @@ func (p Prefix) String() string {
 // Character returns the single character SI representation of the unit prefix.
 func (p Prefix) Character() (s rune) {
 	if p == PrefixMicro {
-		s = 'μ'
+		return 'μ'
 	}
 	s = rune(p.String()[0])
 	if s == '<' {
