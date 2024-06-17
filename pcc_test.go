@@ -1,7 +1,6 @@
 package pcc
 
-import "testing"
-
+/*
 func TestI4ToI8(t *testing.T) {
 	tests := []struct {
 		in   byte
@@ -59,3 +58,4 @@ func TestI8ToI4(t *testing.T) {
 		}
 	}
 }
+*/

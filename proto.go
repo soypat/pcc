@@ -312,7 +312,7 @@ func decodeRegister(b []byte) (reg Register) {
 	copy(reg.Name[:], b[:8])
 	reg.Base = int8(b[8])
 	// Skip over 4 reserved bytes.
-	copy(reg.Dimension.dims[:], b[12:16])
+	// copy(reg.Dimension.dims[:], b[12:16])
 	reg.Value = int64(binary.BigEndian.Uint64(b[16:24]))
 	return reg
 }
