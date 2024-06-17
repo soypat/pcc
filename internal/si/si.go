@@ -12,8 +12,9 @@ const (
 
 // NewDimension creates a new dimension from the given exponents.
 func NewDimension(length, mass, time, temperature, electricCurrent, luminosity, amount, UNUSED int) (Dimension, error) {
-	if uint(length) > maxunit || uint(mass) > maxunit || uint(time) > maxunit ||
-		uint(temperature) > maxunit || uint(electricCurrent) > maxunit || uint(luminosity) > maxunit || uint(amount) > maxunit {
+	if isDimOOB(length) || isDimOOB(mass) || isDimOOB(time) ||
+		isDimOOB(temperature) || isDimOOB(electricCurrent) ||
+		isDimOOB(luminosity) || isDimOOB(amount) {
 		return Dimension{}, errors.New("overflow dimension storage")
 	} else if UNUSED != 0 {
 		return Dimension{}, errors.New("use of reserved dimension")
@@ -26,6 +27,10 @@ func NewDimension(length, mass, time, temperature, electricCurrent, luminosity, 
 			intToI4(amount) | intToI4(0)<<4,
 		},
 	}, nil
+}
+
+func isDimOOB(dim int) bool {
+	return dim > maxunit || dim < -maxunit
 }
 
 // Dimension represents the dimensions of a physical quantity.
@@ -114,32 +119,27 @@ func (p Prefix) IsValid() bool {
 	return p == PrefixNone || p.Character() != ' '
 }
 
+// String returns a human readable representation of the Prefix of string type.
+// Returns a error message string if Prefix is undefined. Guarateed to return non-zero string.
+func (p Prefix) String() string {
+	if p == PrefixMicro {
+		return "μ"
+	}
+	const pfxTable = "a!!f!!p!!n!!u!!m!! !!k!!M!!G!!T!!E"
+	offset := int(p - PrefixAtto)
+	if offset < 0 || offset >= len(pfxTable) || pfxTable[offset] == '!' {
+		return "<si!invalid Prefix>"
+	}
+	return pfxTable[offset : offset+1]
+}
+
 // Character returns the single character SI representation of the unit prefix.
 func (p Prefix) Character() (s rune) {
-	switch p {
-	case PrefixFemto:
-		s = 'f'
-	case PrefixPico:
-		s = 'p'
-	case PrefixNano:
-		s = 'n'
-	case PrefixMicro:
+	if p == PrefixMicro {
 		s = 'μ'
-	case PrefixMilli:
-		s = 'm'
-	case PrefixKilo:
-		s = 'k'
-	case PrefixMega:
-		s = 'M'
-	case PrefixGiga:
-		s = 'G'
-	case PrefixTera:
-		s = 'T'
-	case PrefixExa:
-		s = 'E'
-	case PrefixNone:
-		fallthrough
-	default:
+	}
+	s = rune(p.String()[0])
+	if s == '<' {
 		s = ' '
 	}
 	return s
