@@ -4,27 +4,26 @@ import (
 	"errors"
 	"math/bits"
 	"strconv"
+	"unicode/utf8"
 )
 
 const (
-	maxunit = 7
+	maxunit = 200
 )
 
 // NewDimension creates a new dimension from the given exponents.
-func NewDimension(length, mass, time, temperature, electricCurrent, luminosity, amount, UNUSED int) (Dimension, error) {
+func NewDimension(length, mass, time, temperature, electricCurrent, luminosity, amount int) (Dimension, error) {
 	if isDimOOB(length) || isDimOOB(mass) || isDimOOB(time) ||
 		isDimOOB(temperature) || isDimOOB(electricCurrent) ||
 		isDimOOB(luminosity) || isDimOOB(amount) {
 		return Dimension{}, errors.New("overflow dimension storage")
-	} else if UNUSED != 0 {
-		return Dimension{}, errors.New("use of reserved dimension")
 	}
 	return Dimension{
-		dims: [4]byte{
-			intToI4(length) | intToI4(mass)<<4,
-			intToI4(time) | intToI4(temperature)<<4,
-			intToI4(electricCurrent) | intToI4(luminosity)<<4,
-			intToI4(amount) | intToI4(0)<<4,
+		dims: [7]int16{
+			int16(length), int16(mass),
+			int16(time), int16(temperature),
+			int16(electricCurrent), int16(luminosity),
+			int16(amount),
 		},
 	}, nil
 }
@@ -44,16 +43,82 @@ type Dimension struct {
 	//  5. Luminous intensity dimension (J)
 	//  6. Amount or quantity dimension (N). i.e: moles, particles, electric pulses, etc.
 	// Since these are int4s they are in the range of -8 to 7. Last 4 bits of fourth byte are unused.
-	dims [4]byte
+	dims [7]int16
 }
 
-func (d Dimension) ExpLength() int      { return i4ToInt(d.dims[0] & 0xf) }
-func (d Dimension) ExpMass() int        { return i4ToInt(d.dims[0] >> 4) }
-func (d Dimension) ExpTime() int        { return i4ToInt(d.dims[1] & 0xf) }
-func (d Dimension) ExpTemperature() int { return i4ToInt(d.dims[1] >> 4) }
-func (d Dimension) ExpCurrent() int     { return i4ToInt(d.dims[2] & 0xf) }
-func (d Dimension) ExpLuminous() int    { return i4ToInt(d.dims[2] >> 4) }
-func (d Dimension) ExpAmount() int      { return i4ToInt(d.dims[3] & 0xf) }
+const negexp = '⁻'
+
+var exprune = [...]rune{
+	0: '⁰',
+	1: '¹',
+	2: '²',
+	3: '³',
+	4: '⁴',
+	5: '⁵',
+	6: '⁶',
+	7: '⁷',
+	8: '⁸',
+	9: '⁹',
+}
+
+func (d Dimension) String() string {
+	if d == (Dimension{}) {
+		return ""
+	}
+	s := make([]byte, 0, 8)
+	return string(d.appendf(s))
+}
+
+func (d Dimension) appendf(b []byte) []byte {
+	app := func(b []byte, char byte, dim int) []byte {
+		if dim == 0 {
+			return b
+		}
+		b = append(b, char)
+		if dim == 1 {
+			return b
+		}
+
+		var buf [20]byte
+		numbuf := strconv.AppendInt(buf[:0], int64(dim), 10)
+		if numbuf[0] == '-' {
+			b = utf8.AppendRune(b, negexp)
+			numbuf = numbuf[1:]
+		}
+		for i := 0; i < len(numbuf); i++ {
+			offset := numbuf[i] - '0'
+			if offset > 9 {
+				panic("invalid char")
+			}
+			b = utf8.AppendRune(b, exprune[offset])
+		}
+		return b
+	}
+	b = app(b, 'L', d.ExpLength())
+	b = app(b, 'M', d.ExpMass())
+	b = app(b, 'T', d.ExpTime())
+	b = app(b, 'K', d.ExpTemperature())
+	b = app(b, 'I', d.ExpCurrent())
+	b = app(b, 'J', d.ExpLuminous())
+	b = app(b, 'N', d.ExpAmount())
+	return b
+}
+
+func (d Dimension) ExpLength() int      { return int(d.dims[0]) }
+func (d Dimension) ExpMass() int        { return int(d.dims[1]) }
+func (d Dimension) ExpTime() int        { return int(d.dims[2]) }
+func (d Dimension) ExpTemperature() int { return int(d.dims[3]) }
+func (d Dimension) ExpCurrent() int     { return int(d.dims[4]) }
+func (d Dimension) ExpLuminous() int    { return int(d.dims[5]) }
+func (d Dimension) ExpAmount() int      { return int(d.dims[6]) }
+
+// func (d Dimension) ExpLength() int      { return i4ToInt(d.dims[0] & 0xf) }
+// func (d Dimension) ExpMass() int        { return i4ToInt(d.dims[0] >> 4) }
+// func (d Dimension) ExpTime() int        { return i4ToInt(d.dims[1] & 0xf) }
+// func (d Dimension) ExpTemperature() int { return i4ToInt(d.dims[1] >> 4) }
+// func (d Dimension) ExpCurrent() int     { return i4ToInt(d.dims[2] & 0xf) }
+// func (d Dimension) ExpLuminous() int    { return i4ToInt(d.dims[2] >> 4) }
+// func (d Dimension) ExpAmount() int      { return i4ToInt(d.dims[3] & 0xf) }
 
 // Inv inverts the dimension by multiplying all dimension exponents by -1.
 func (d Dimension) Inv() Dimension {
@@ -67,34 +132,37 @@ func (d Dimension) Inv() Dimension {
 }
 
 func MulDim(a, b Dimension) (Dimension, error) {
-	l := a.ExpLength() + b.ExpLength()
-	m := a.ExpMass() + b.ExpMass()
-	t := a.ExpTime() + b.ExpTime()
-	T := a.ExpTemperature() + b.ExpTemperature()
-	i := a.ExpCurrent() + b.ExpCurrent()
-	L := a.ExpLuminous() + b.ExpLuminous()
-	q := a.ExpAmount() + b.ExpAmount()
-	return NewDimension(l, m, t, T, i, L, q, 0)
+	L := a.ExpLength() + b.ExpLength()
+	M := a.ExpMass() + b.ExpMass()
+	T := a.ExpTime() + b.ExpTime()
+	K := a.ExpTemperature() + b.ExpTemperature()
+	I := a.ExpCurrent() + b.ExpCurrent()
+	J := a.ExpLuminous() + b.ExpLuminous()
+	N := a.ExpAmount() + b.ExpAmount()
+	return NewDimension(L, M, T, K, I, J, N)
 }
 
 func DivDim(a, b Dimension) (Dimension, error) {
 	return MulDim(a, b.Inv())
 }
 
+const negmask = 1 << 3
+
 func intToI4(c int) byte {
 	if c < 0 {
-		c |= 1 << 3
+		c |= negmask
 	}
 	return byte(c) & 0xf
 }
 
 // i4ToInt converts lower 4 bits of a byte to a signed 4 bit integer.
-func i4ToInt(c byte) int {
-	c &= 0xf
-	if c&0x8 != 0 {
-		c = c | 0xf0
+func i4ToInt(c byte) (v int) {
+	v = int(c & 0xf)
+	if v&negmask != 0 {
+		v &= 0xf &^ negmask
+		v = -v
 	}
-	return int(c)
+	return v
 }
 
 type Prefix int8
@@ -134,6 +202,7 @@ func (p Prefix) String() string {
 }
 
 // Character returns the single character SI representation of the unit prefix.
+// If not representable or invalid returns space caracter ' '.
 func (p Prefix) Character() (s rune) {
 	if p == PrefixMicro {
 		return 'μ'
