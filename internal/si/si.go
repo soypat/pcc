@@ -16,7 +16,7 @@ func NewDimension(length, mass, time, temperature, electricCurrent, luminosity, 
 	if isDimOOB(length) || isDimOOB(mass) || isDimOOB(time) ||
 		isDimOOB(temperature) || isDimOOB(electricCurrent) ||
 		isDimOOB(luminosity) || isDimOOB(amount) {
-		return Dimension{}, errors.New("overflow dimension storage")
+		return Dimension{}, errors.New("overflow of dimension storage")
 	}
 	return Dimension{
 		dims: [7]int16{
@@ -34,21 +34,14 @@ func isDimOOB(dim int) bool {
 
 // Dimension represents the dimensions of a physical quantity.
 type Dimension struct {
-	// dims contains 7 int4's representing the exponent of primitive dimensions:
-	//  0. Distance dimension (L)
-	//  1. Mass dimension (M)
-	//  2. Time dimension (T)
-	//  3. Temperature dimension (K)
-	//  4. Electric current dimension (I)
-	//  5. Luminous intensity dimension (J)
-	//  6. Amount or quantity dimension (N). i.e: moles, particles, electric pulses, etc.
-	// Since these are int4s they are in the range of -8 to 7. Last 4 bits of fourth byte are unused.
+	// dims contains 7 int16's representing the exponent of primitive dimensions.
+	// The ordering follows the result of Exponents method result.
 	dims [7]int16
 }
 
 const negexp = '⁻'
 
-var exprune = [...]rune{
+var exprune = [10]rune{
 	0: '⁰',
 	1: '¹',
 	2: '²',
@@ -61,6 +54,7 @@ var exprune = [...]rune{
 	9: '⁹',
 }
 
+// String returns a human readable representation of the dimension.
 func (d Dimension) String() string {
 	if d == (Dimension{}) {
 		return ""
@@ -99,70 +93,73 @@ func (d Dimension) appendf(b []byte) []byte {
 	b = app(b, 'T', d.ExpTime())
 	b = app(b, 'K', d.ExpTemperature())
 	b = app(b, 'I', d.ExpCurrent())
-	b = app(b, 'J', d.ExpLuminous())
+	b = app(b, 'J', d.ExpLuminosity())
 	b = app(b, 'N', d.ExpAmount())
 	return b
 }
 
-func (d Dimension) ExpLength() int      { return int(d.dims[0]) }
-func (d Dimension) ExpMass() int        { return int(d.dims[1]) }
-func (d Dimension) ExpTime() int        { return int(d.dims[2]) }
-func (d Dimension) ExpTemperature() int { return int(d.dims[3]) }
-func (d Dimension) ExpCurrent() int     { return int(d.dims[4]) }
-func (d Dimension) ExpLuminous() int    { return int(d.dims[5]) }
-func (d Dimension) ExpAmount() int      { return int(d.dims[6]) }
+// ExpLength returns the exponent of the length dimension of d.
+func (d Dimension) ExpLength() int { return int(d.dims[0]) }
 
-// func (d Dimension) ExpLength() int      { return i4ToInt(d.dims[0] & 0xf) }
-// func (d Dimension) ExpMass() int        { return i4ToInt(d.dims[0] >> 4) }
-// func (d Dimension) ExpTime() int        { return i4ToInt(d.dims[1] & 0xf) }
-// func (d Dimension) ExpTemperature() int { return i4ToInt(d.dims[1] >> 4) }
-// func (d Dimension) ExpCurrent() int     { return i4ToInt(d.dims[2] & 0xf) }
-// func (d Dimension) ExpLuminous() int    { return i4ToInt(d.dims[2] >> 4) }
-// func (d Dimension) ExpAmount() int      { return i4ToInt(d.dims[3] & 0xf) }
+// ExpMass returns the exponent of the mass dimension of d.
+func (d Dimension) ExpMass() int { return int(d.dims[1]) }
+
+// ExpTime returns the exponent of the time dimension of d.
+func (d Dimension) ExpTime() int { return int(d.dims[2]) }
+
+// ExpTemperature returns the exponent of the temperature dimension of d.
+func (d Dimension) ExpTemperature() int { return int(d.dims[3]) }
+
+// ExpCurrent returns the exponent of the current dimension of d.
+func (d Dimension) ExpCurrent() int { return int(d.dims[4]) }
+
+// ExpLuminosity returns the exponent of the luminosity dimension of d.
+func (d Dimension) ExpLuminosity() int { return int(d.dims[5]) }
+
+// ExpAmount returns the exponent of the amount dimension of d.
+func (d Dimension) ExpAmount() int { return int(d.dims[6]) }
+
+// Exponents returns the exponents of the 7 dimensions as an array. The ordering is:
+//  0. Distance dimension (L)
+//  1. Mass dimension (M)
+//  2. Time dimension (T)
+//  3. Temperature dimension (K)
+//  4. Electric current dimension (I)
+//  5. Luminosity intensity dimension (J)
+//  6. Amount or quantity dimension (N)
+func (d Dimension) Exponents() (LMTKIJN [7]int) {
+	for i := range LMTKIJN {
+		LMTKIJN[i] = int(d.dims[i])
+	}
+	return LMTKIJN
+}
 
 // Inv inverts the dimension by multiplying all dimension exponents by -1.
 func (d Dimension) Inv() Dimension {
-	const negativeBits = 0b1000_1000
 	inv := d
-	inv.dims[0] ^= negativeBits
-	inv.dims[1] ^= negativeBits
-	inv.dims[2] ^= negativeBits
-	inv.dims[3] ^= negativeBits
+	for i := range inv.dims {
+		inv.dims[i] *= -1
+	}
 	return inv
 }
 
+// MulDim returns the dimension obtained from a*b.
+// It returns an error if result dimension exceeds storage.
 func MulDim(a, b Dimension) (Dimension, error) {
 	L := a.ExpLength() + b.ExpLength()
 	M := a.ExpMass() + b.ExpMass()
 	T := a.ExpTime() + b.ExpTime()
 	K := a.ExpTemperature() + b.ExpTemperature()
 	I := a.ExpCurrent() + b.ExpCurrent()
-	J := a.ExpLuminous() + b.ExpLuminous()
+	J := a.ExpLuminosity() + b.ExpLuminosity()
 	N := a.ExpAmount() + b.ExpAmount()
 	return NewDimension(L, M, T, K, I, J, N)
 }
 
+// DivDim returns the dimension obtained from a/b.
+// It returns an error if result dimension exceeds storage.
 func DivDim(a, b Dimension) (Dimension, error) {
 	return MulDim(a, b.Inv())
-}
-
-const negmask = 1 << 3
-
-func intToI4(c int) byte {
-	if c < 0 {
-		c |= negmask
-	}
-	return byte(c) & 0xf
-}
-
-// i4ToInt converts lower 4 bits of a byte to a signed 4 bit integer.
-func i4ToInt(c byte) (v int) {
-	v = int(c & 0xf)
-	if v&negmask != 0 {
-		v &= 0xf &^ negmask
-		v = -v
-	}
-	return v
 }
 
 type Prefix int8
@@ -276,7 +273,7 @@ var iLogTable = [...]int64{
 // can be interpreted as the quanity of digits in the number in base 10.
 func ilog10(v int64) int {
 	for i, l := range iLogTable {
-		if v < l {
+		if v <= l {
 			return i
 		}
 	}
