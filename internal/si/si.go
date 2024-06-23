@@ -56,7 +56,7 @@ var exprune = [10]rune{
 
 // String returns a human readable representation of the dimension.
 func (d Dimension) String() string {
-	if d == (Dimension{}) {
+	if d.IsDimensionless() {
 		return ""
 	}
 	s := make([]byte, 0, 8)
@@ -97,6 +97,9 @@ func (d Dimension) appendf(b []byte) []byte {
 	b = app(b, 'N', d.ExpAmount())
 	return b
 }
+
+// IsDimensionless returns true if d is dimensionless, that is to say all dimension exponents are zero.
+func (d Dimension) IsDimensionless() bool { return d.dims == ([7]int16{}) }
 
 // ExpLength returns the exponent of the length dimension of d.
 func (d Dimension) ExpLength() int { return int(d.dims[0]) }
