@@ -1,6 +1,6 @@
 package pcc
 
-import "github.com/soypat/pcc/internal/si"
+import "github.com/soypat/si"
 
 // Process definition types.
 type (
